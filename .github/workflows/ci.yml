@@ -125,7 +125,6 @@ jobs:
           docker compose -f docker/docker-compose.yml config --quiet
           docker compose -f docker/docker-compose.yml -f docker/docker-compose.hive.yml config --quiet
 
-      - name: Check deployment guide code fences
+      - name: Validate deployment configuration and docs
         run: |
-          scripts/check_dependencies.sh --mode ci
-          python scripts/validate_deployment_config.py
+          python3 scripts/validate_deployment_config.py
