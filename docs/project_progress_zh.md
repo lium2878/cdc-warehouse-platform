@@ -163,6 +163,8 @@ comment_batch_priority_total
 - 表级链路检查。
 - 表级 MySQL/ODS 一致性检查。
 - 新表接入后自动验收。
+- Replay、补数、链路检查、一致性检查、新表验收已接入统一异步任务模型。
+- Replay 业务记录通过 `execution_id` 关联任务状态，支持实时日志和取消。
 - 失败任务关联日志上下文。
 - Replay 页面。
 - Replay 可真实执行全量 MySQL 快照重放并记录运行状态。

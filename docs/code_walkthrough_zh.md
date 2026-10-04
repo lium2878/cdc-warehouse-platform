@@ -211,10 +211,10 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `OnboardingController.java`：新表接入页面和 API。
 - `PlatformActionController.java`：统一触发平台动作，例如 merge、监控、DS 发布；同时记录操作审计，包括操作人、客户端 IP、请求参数、退出码、输出摘要和耗时。
 - `RealtimeController.java`：实时数仓页面和 Kudu/Impala API。
-- `ReplayController.java`：数据回放页面和 API。
+- `ReplayController.java`：提交异步全量回放、查询回放记录；页面可查看实时日志和取消运行。
 - `RuleController.java`：敏感规则/质量规则页面和 API。
 - `TaskController.java`：任务配置和执行 API，包含异步提交、状态查询、实时日志、取消、重跑和 ODS merge 状态。
-- `TableOpsController.java`：表级运维页面和 API，包含补数、链路检查、一致性检查和新表接入后验收。
+- `TableOpsController.java`：异步提交补数、链路检查、一致性检查和新表接入后验收；真实执行返回 HTTP 202。
 
 ### `model`
 
@@ -247,7 +247,7 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 
 - `MonitorResultRepository.java`：监控结果表 CRUD。
 - `ActionAuditRepository.java`：操作审计表写入和最近记录查询。写审计时捕获数据库异常，避免审计失败影响真正的运维动作。
-- `ReplayRepository.java`：回放记录表 CRUD。
+- `ReplayRepository.java`：回放记录 CRUD，通过 `execution_id` 关联统一任务状态。
 - `RuleRepository.java`：规则表 CRUD。
 - `TableMetadataRepository.java`：表元数据 CRUD。
 - `TaskRepository.java`：任务配置 CRUD。
@@ -272,12 +272,12 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `PlatformActionService.java`：页面按钮动作路由，例如 daily merge、monitor suite、DS publish、Kafka->Kudu、本地/服务器 E2E 验收。
 - `MergeTaskStatusService.java`：扫描 `data/ops/merge_audit` 下的 merge 审计 JSON，并同步到 `merge_task_status` 表。
 - `RealtimeService.java`：查询 Impala/Kudu 实时表、视图和连接状态。
-- `ReplayService.java`：校验回放请求，执行全量 MySQL 快照重放并更新任务状态。
+- `ReplayService.java`：校验回放请求，将全量 MySQL 快照重放提交给异步任务服务。
 - `RuleService.java`：敏感规则读取/保存。
 - `StartupValidationService.java`：启动时校验生产配置，避免默认密码、默认 secret、缺路径。
 - `TaskConfigService.java`：任务配置读取/保存，将手动运行和历史重跑提交给异步执行服务。
 - `TaskExecutionService.java`：任务状态机核心，负责提交、后台执行、防重复、心跳、超时、取消、重跑、日志读取和陈旧任务恢复。
-- `TableOpsService.java`：表级运维逻辑。补数会执行 bootstrap 和 merge；链路检查会检查 MySQL、Kafka、HDFS、Hive；一致性检查会对比 MySQL 与 ODS 行数并写入监控结果；新表验收会对当前表执行 bootstrap、merge 和 ODS/Hive 检查。
+- `TableOpsService.java`：异步执行表级补数、链路检查、一致性检查和新表验收；一致性任务完成后继续写监控结果，dry run 保持即时返回。
 
 ### `resources`
 

@@ -8,6 +8,7 @@ public class ReplayRecord {
     private String endTime;
     private String command;
     private String status;
+    private Long executionId;
     private String createdAt;
     private String updatedAt;
 
@@ -25,6 +26,8 @@ public class ReplayRecord {
     public void setCommand(String command) { this.command = command; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public Long getExecutionId() { return executionId; }
+    public void setExecutionId(Long executionId) { this.executionId = executionId; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
     public String getUpdatedAt() { return updatedAt; }

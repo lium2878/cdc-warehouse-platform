@@ -1,10 +1,9 @@
 package com.example.warehouse.service;
 
-import com.example.warehouse.model.CommandResult;
 import com.example.warehouse.model.ReplayRecord;
 import com.example.warehouse.model.ReplayRequest;
+import com.example.warehouse.model.TaskExecution;
 import com.example.warehouse.repository.ReplayRepository;
-import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
@@ -13,12 +12,12 @@ import org.springframework.stereotype.Service;
 public class ReplayService {
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z0-9_]+");
     private final ReplayRepository replayRepository;
-    private final CommandExecutorService commandExecutorService;
+    private final TaskExecutionService taskExecutionService;
 
     public ReplayService(ReplayRepository replayRepository,
-                         CommandExecutorService commandExecutorService) {
+                         TaskExecutionService taskExecutionService) {
         this.replayRepository = replayRepository;
-        this.commandExecutorService = commandExecutorService;
+        this.taskExecutionService = taskExecutionService;
     }
 
     public String buildBootstrapCommand(ReplayRequest request) {
@@ -28,21 +27,23 @@ public class ReplayService {
                 + ".json --replace-binlog --replace-ods";
     }
 
-    public CommandResult execute(ReplayRequest request) {
+    public TaskExecution execute(ReplayRequest request, String triggeredBy) {
         String command = buildBootstrapCommand(request);
         long recordId = replayRepository.save(request, command);
-        CommandResult result = commandExecutorService.run(
-                Arrays.asList(
-                        "python3",
-                        "scripts/bootstrap_mysql_table.py",
-                        "metadata/tables/" + request.getDatabaseName() + "." + request.getTableName() + ".json",
-                        "--replace-binlog",
-                        "--replace-ods"
-                ),
-                1800
-        );
-        replayRepository.updateStatus(recordId, result.getExitCode() == 0 ? "SUCCESS" : "FAILED");
-        return result;
+        try {
+            TaskExecution execution = taskExecutionService.submitShell(
+                    "replay_" + request.getDatabaseName() + "_" + request.getTableName(),
+                    "REPLAY",
+                    command,
+                    1800,
+                    triggeredBy,
+                    null);
+            replayRepository.attachExecution(recordId, execution.getId());
+            return execution;
+        } catch (RuntimeException ex) {
+            replayRepository.updateStatus(recordId, "REJECTED");
+            throw ex;
+        }
     }
 
     public List<ReplayRecord> latest() {

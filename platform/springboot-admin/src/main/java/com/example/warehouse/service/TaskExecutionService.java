@@ -54,6 +54,16 @@ public class TaskExecutionService {
                                      int timeoutSeconds,
                                      String triggeredBy,
                                      Long parentExecutionId) {
+        return submitShell(taskName, taskType, command, timeoutSeconds, triggeredBy, parentExecutionId, null);
+    }
+
+    public TaskExecution submitShell(String taskName,
+                                     String taskType,
+                                     String command,
+                                     int timeoutSeconds,
+                                     String triggeredBy,
+                                     Long parentExecutionId,
+                                     CompletionHandler completionHandler) {
         if (timeoutSeconds <= 0) {
             throw new IllegalArgumentException("timeoutSeconds must be positive");
         }
@@ -75,7 +85,7 @@ public class TaskExecutionService {
 
         localExecutions.add(executionId);
         try {
-            executor.execute(() -> execute(executionId, command, timeoutSeconds));
+            executor.execute(() -> execute(executionId, command, timeoutSeconds, completionHandler));
         } catch (RuntimeException ex) {
             localExecutions.remove(executionId);
             repository.finish(executionId, "FAILED", 1, "", 0L, "task executor rejected submission");
@@ -143,7 +153,10 @@ public class TaskExecutionService {
         }
     }
 
-    private void execute(long executionId, String command, int timeoutSeconds) {
+    private void execute(long executionId,
+                         String command,
+                         int timeoutSeconds,
+                         CompletionHandler completionHandler) {
         long startedAt = System.currentTimeMillis();
         String relativeLogPath = "data/task-executions/" + LocalDate.now() + "/" + executionId + ".log";
         try {
@@ -176,9 +189,11 @@ public class TaskExecutionService {
             } else {
                 repository.finish(executionId, "FAILED", result.getExitCode(), result.getOutput(), durationMs, "command failed");
             }
+            notifyCompletion(executionId, completionHandler);
         } catch (Exception ex) {
             long durationMs = System.currentTimeMillis() - startedAt;
             repository.finish(executionId, "FAILED", 1, "", durationMs, ex.getMessage());
+            notifyCompletion(executionId, completionHandler);
         } finally {
             localExecutions.remove(executionId);
             cancellationRequests.remove(executionId);
@@ -206,5 +221,21 @@ public class TaskExecutionService {
 
     private String valueOrDefault(String value, String fallback) {
         return value == null || value.trim().isEmpty() ? fallback : value.trim();
+    }
+
+    private void notifyCompletion(long executionId, CompletionHandler completionHandler) {
+        if (completionHandler == null) {
+            return;
+        }
+        try {
+            completionHandler.onComplete(require(executionId));
+        } catch (RuntimeException ignored) {
+            // Business-side result persistence must not change the task terminal state.
+        }
+    }
+
+    @FunctionalInterface
+    public interface CompletionHandler {
+        void onComplete(TaskExecution execution);
     }
 }

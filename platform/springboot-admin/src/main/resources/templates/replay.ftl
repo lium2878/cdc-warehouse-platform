@@ -38,28 +38,79 @@
         <#if command??>
         <pre>${command?html}</pre>
         </#if>
-        <#if result??>
-        <pre>exitCode=${result.exitCode}
-${result.output?html}</pre>
+        <#if execution??>
+        <pre>submitted execution ${execution.id}, status=${execution.status}</pre>
         </#if>
       </section>
       <section>
         <h2>Recent Replay Runs</h2>
-        <table>
-          <thead><tr><th>ID</th><th>Source</th><th>Status</th><th>Created</th><th>Command</th></tr></thead>
+        <table id="replayTable">
+          <thead><tr><th>ID</th><th>Execution</th><th>Source</th><th>Status</th><th>Created</th><th>Action</th></tr></thead>
           <tbody>
           <#list records as item>
             <tr>
               <td>${item.id}</td>
+              <td>${item.executionId!""}</td>
               <td>${item.databaseName?html}.${item.tableName?html}</td>
               <td>${item.status?html}</td>
               <td>${item.createdAt?html}</td>
-              <td><code>${item.command?html}</code></td>
+              <td>
+                <#if item.executionId??>
+                <button type="button" class="secondary" onclick="showReplayLog(${item.executionId})">Log</button>
+                <#if item.status == "PENDING" || item.status == "RUNNING">
+                <button type="button" class="warn" onclick="cancelReplay(${item.executionId})">Cancel</button>
+                </#if>
+                </#if>
+              </td>
             </tr>
           </#list>
           </tbody>
         </table>
       </section>
     </main>
+    <pre id="replayLog"></pre>
+    <script>
+      function escapeHtml(value) {
+        return String(value == null ? "" : value)
+          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+      }
+
+      function refreshReplays() {
+        fetch("/api/replay/records", { cache: "no-store" })
+          .then(function (response) { return response.json(); })
+          .then(function (items) {
+            var rows = (items || []).map(function (item) {
+              var actions = "";
+              if (item.executionId) {
+                actions += "<button type=\"button\" class=\"secondary\" onclick=\"showReplayLog(" + Number(item.executionId) + ")\">Log</button> ";
+                if (item.status === "PENDING" || item.status === "RUNNING") {
+                  actions += "<button type=\"button\" class=\"warn\" onclick=\"cancelReplay(" + Number(item.executionId) + ")\">Cancel</button>";
+                }
+              }
+              return "<tr><td>" + Number(item.id) + "</td><td>" + escapeHtml(item.executionId)
+                + "</td><td>" + escapeHtml(item.databaseName) + "." + escapeHtml(item.tableName)
+                + "</td><td>" + escapeHtml(item.status) + "</td><td>" + escapeHtml(item.createdAt)
+                + "</td><td>" + actions + "</td></tr>";
+            }).join("");
+            document.getElementById("replayTable").innerHTML =
+              "<thead><tr><th>ID</th><th>Execution</th><th>Source</th><th>Status</th><th>Created</th><th>Action</th></tr></thead><tbody>"
+              + rows + "</tbody>";
+          });
+      }
+
+      function showReplayLog(executionId) {
+        fetch("/api/tasks/executions/" + executionId + "/log", { cache: "no-store" })
+          .then(function (response) { return response.text(); })
+          .then(function (value) { document.getElementById("replayLog").textContent = value || "no log output"; });
+      }
+
+      function cancelReplay(executionId) {
+        fetch("/api/tasks/executions/" + executionId + "/cancel", { method: "POST" })
+          .then(function () { refreshReplays(); });
+      }
+
+      setInterval(refreshReplays, 5000);
+    </script>
   </body>
 </html>

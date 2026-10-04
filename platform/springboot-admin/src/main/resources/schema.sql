@@ -87,8 +87,10 @@ create table if not exists replay_record (
   end_time varchar(32) not null,
   command text not null,
   status varchar(32) not null default 'CREATED',
+  execution_id bigint,
   created_at timestamp not null default current_timestamp,
-  updated_at timestamp not null default current_timestamp on update current_timestamp
+  updated_at timestamp not null default current_timestamp on update current_timestamp,
+  key idx_replay_execution (execution_id)
 );
 
 create table if not exists monitor_result (

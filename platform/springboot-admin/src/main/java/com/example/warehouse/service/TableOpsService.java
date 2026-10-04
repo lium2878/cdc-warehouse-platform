@@ -6,7 +6,6 @@ import com.example.warehouse.model.TableOpsRequest;
 import com.example.warehouse.repository.MonitorResultRepository;
 import com.example.warehouse.repository.TaskExecutionRepository;
 import java.time.LocalDate;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
@@ -14,21 +13,21 @@ import org.springframework.stereotype.Service;
 @Service
 public class TableOpsService {
     private final MetadataService metadataService;
-    private final CommandExecutorService commandExecutorService;
+    private final TaskExecutionService taskExecutionService;
     private final TaskExecutionRepository taskExecutionRepository;
     private final MonitorResultRepository monitorResultRepository;
 
     public TableOpsService(MetadataService metadataService,
-                           CommandExecutorService commandExecutorService,
+                           TaskExecutionService taskExecutionService,
                            TaskExecutionRepository taskExecutionRepository,
                            MonitorResultRepository monitorResultRepository) {
         this.metadataService = metadataService;
-        this.commandExecutorService = commandExecutorService;
+        this.taskExecutionService = taskExecutionService;
         this.taskExecutionRepository = taskExecutionRepository;
         this.monitorResultRepository = monitorResultRepository;
     }
 
-    public CommandResult backfill(TableOpsRequest request) {
+    public Object backfill(TableOpsRequest request, String triggeredBy) {
         Optional<TableMetadata> table = findTable(request);
         if (!table.isPresent()) {
             return new CommandResult(2, "table metadata not found");
@@ -40,10 +39,10 @@ public class TableOpsService {
                 + q(table.get().getTableName()) + " "
                 + q(start) + " "
                 + q(end);
-        return runAndRecord("backfill_" + request.getDatabaseName() + "_" + request.getTableName(), "BACKFILL", command, 1800, request);
+        return submit("backfill_" + request.getDatabaseName() + "_" + request.getTableName(), "BACKFILL", command, 1800, request, triggeredBy, null);
     }
 
-    public CommandResult checkLineage(TableOpsRequest request) {
+    public Object checkLineage(TableOpsRequest request, String triggeredBy) {
         Optional<TableMetadata> table = findTable(request);
         if (!table.isPresent()) {
             return new CommandResult(2, "table metadata not found");
@@ -54,10 +53,10 @@ public class TableOpsService {
                 + q(table.get().getTableName()) + " "
                 + q(dt) + " "
                 + q(table.get().getOdsTable());
-        return runAndRecord("check_lineage_" + request.getDatabaseName() + "_" + request.getTableName(), "CHECK", command, 300, request);
+        return submit("check_lineage_" + request.getDatabaseName() + "_" + request.getTableName(), "CHECK", command, 300, request, triggeredBy, null);
     }
 
-    public CommandResult consistency(TableOpsRequest request) {
+    public Object consistency(TableOpsRequest request, String triggeredBy) {
         Optional<TableMetadata> table = findTable(request);
         if (!table.isPresent()) {
             return new CommandResult(2, "table metadata not found");
@@ -69,22 +68,17 @@ public class TableOpsService {
                 + q(dt) + " "
                 + q(table.get().getOdsTable()) + " "
                 + q(table.get().getPartitionColumn());
-        CommandResult result = runAndRecord("consistency_" + request.getDatabaseName() + "_" + request.getTableName(), "MONITOR", command, 300, request);
-        if (isDryRun(request)) {
-            return result;
-        }
-        monitorResultRepository.save(
+        TaskExecutionService.CompletionHandler completion = execution -> monitorResultRepository.save(
                 "row_count_consistency",
                 table.get().getDatabaseName(),
                 table.get().getTableName(),
-                result.getExitCode() == 0 ? "OK" : "WARN",
-                result.getOutput(),
-                "dt=" + dt
-        );
-        return result;
+                "SUCCESS".equals(execution.getStatus()) ? "OK" : "WARN",
+                execution.getOutputExcerpt(),
+                "dt=" + dt);
+        return submit("consistency_" + request.getDatabaseName() + "_" + request.getTableName(), "MONITOR", command, 300, request, triggeredBy, completion);
     }
 
-    public CommandResult onboardingVerify(TableOpsRequest request) {
+    public Object onboardingVerify(TableOpsRequest request, String triggeredBy) {
         Optional<TableMetadata> table = findTable(request);
         if (!table.isPresent()) {
             return new CommandResult(2, "table metadata not found. Run onboarding first.");
@@ -95,7 +89,7 @@ public class TableOpsService {
                 + q(table.get().getTableName()) + " "
                 + q(dt) + " "
                 + q(table.get().getOdsTable());
-        return runAndRecord("onboarding_verify_" + request.getDatabaseName() + "_" + request.getTableName(), "VERIFY", command, 1800, request);
+        return submit("onboarding_verify_" + request.getDatabaseName() + "_" + request.getTableName(), "VERIFY", command, 1800, request, triggeredBy, null);
     }
 
     public List<TableMetadata> listTables() {
@@ -106,17 +100,20 @@ public class TableOpsService {
         return metadataService.findTable(request.getDatabaseName(), request.getTableName());
     }
 
-    private CommandResult runAndRecord(String taskName, String taskType, String command, long timeoutSeconds, TableOpsRequest request) {
+    private Object submit(String taskName,
+                          String taskType,
+                          String command,
+                          int timeoutSeconds,
+                          TableOpsRequest request,
+                          String triggeredBy,
+                          TaskExecutionService.CompletionHandler completionHandler) {
         if (isDryRun(request)) {
             String output = "DRY RUN\n\n" + command;
             taskExecutionRepository.save(taskName, taskType, command, 0, output, 0L);
             return new CommandResult(0, output);
         }
-        long startedAt = System.currentTimeMillis();
-        CommandResult result = commandExecutorService.run(Arrays.asList("bash", "-lc", command), timeoutSeconds);
-        long durationMs = System.currentTimeMillis() - startedAt;
-        taskExecutionRepository.save(taskName, taskType, command, result.getExitCode(), result.getOutput(), durationMs);
-        return result;
+        return taskExecutionService.submitShell(
+                taskName, taskType, command, timeoutSeconds, triggeredBy, null, completionHandler);
     }
 
     private String valueOrDefault(String value, String fallback) {

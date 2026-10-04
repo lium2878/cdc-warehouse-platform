@@ -41,6 +41,7 @@
           </div>
         </form>
         <pre id="tableOpsResult"></pre>
+        <p><a href="/tasks">查看任务状态和实时日志</a></p>
       </section>
 
       <section>
@@ -75,16 +76,25 @@
         var result = document.getElementById("tableOpsResult");
         var previous = button.textContent;
         button.disabled = true;
-        button.textContent = "Running";
-        result.textContent = "running " + url + " ...";
+        button.textContent = "Submitting";
+        result.textContent = "submitting " + url + " ...";
         fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
           body: body
         })
-          .then(function (response) { return response.json(); })
+          .then(function (response) {
+            return response.json().then(function (data) {
+              if (!response.ok) throw new Error(data.error || ("HTTP " + response.status));
+              return data;
+            });
+          })
           .then(function (data) {
-            result.textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            if (data.id) {
+              result.textContent = "submitted execution " + data.id + ", status=" + data.status;
+            } else {
+              result.textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            }
           })
           .catch(function (error) {
             result.textContent = String(error);
