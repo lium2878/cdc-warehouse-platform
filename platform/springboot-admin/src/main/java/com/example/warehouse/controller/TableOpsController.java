@@ -75,7 +75,7 @@ public class TableOpsController {
         return ResponseEntity.ok(result);
     }
 
-    private ResponseEntity<?> submit(Operation operation) {
+    private ResponseEntity<?> submit(TaskOperation operation) {
         try {
             return response(operation.run());
         } catch (IllegalArgumentException ex) {
@@ -87,7 +87,7 @@ public class TableOpsController {
     }
 
     @FunctionalInterface
-    private interface Operation {
+    private interface TaskOperation {
         Object run();
     }
 }
