@@ -9,6 +9,16 @@ public class TaskExecution {
     private Integer exitCode;
     private String outputExcerpt;
     private Long durationMs;
+    private String parametersJson;
+    private String logPath;
+    private Long processId;
+    private Integer timeoutSeconds;
+    private String triggeredBy;
+    private String startedAt;
+    private String finishedAt;
+    private String heartbeatAt;
+    private Long parentExecutionId;
+    private String errorMessage;
     private String createdAt;
 
     public Long getId() { return id; }
@@ -27,6 +37,26 @@ public class TaskExecution {
     public void setOutputExcerpt(String outputExcerpt) { this.outputExcerpt = outputExcerpt; }
     public Long getDurationMs() { return durationMs; }
     public void setDurationMs(Long durationMs) { this.durationMs = durationMs; }
+    public String getParametersJson() { return parametersJson; }
+    public void setParametersJson(String parametersJson) { this.parametersJson = parametersJson; }
+    public String getLogPath() { return logPath; }
+    public void setLogPath(String logPath) { this.logPath = logPath; }
+    public Long getProcessId() { return processId; }
+    public void setProcessId(Long processId) { this.processId = processId; }
+    public Integer getTimeoutSeconds() { return timeoutSeconds; }
+    public void setTimeoutSeconds(Integer timeoutSeconds) { this.timeoutSeconds = timeoutSeconds; }
+    public String getTriggeredBy() { return triggeredBy; }
+    public void setTriggeredBy(String triggeredBy) { this.triggeredBy = triggeredBy; }
+    public String getStartedAt() { return startedAt; }
+    public void setStartedAt(String startedAt) { this.startedAt = startedAt; }
+    public String getFinishedAt() { return finishedAt; }
+    public void setFinishedAt(String finishedAt) { this.finishedAt = finishedAt; }
+    public String getHeartbeatAt() { return heartbeatAt; }
+    public void setHeartbeatAt(String heartbeatAt) { this.heartbeatAt = heartbeatAt; }
+    public Long getParentExecutionId() { return parentExecutionId; }
+    public void setParentExecutionId(Long parentExecutionId) { this.parentExecutionId = parentExecutionId; }
+    public String getErrorMessage() { return errorMessage; }
+    public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
     public String getCreatedAt() { return createdAt; }
     public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
 }

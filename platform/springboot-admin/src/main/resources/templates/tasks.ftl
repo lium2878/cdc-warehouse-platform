@@ -65,8 +65,13 @@
             <td><pre class="inline-log">${(item.outputExcerpt!"")?html}</pre></td>
             <td>
               <button type="button" class="secondary" onclick="showExecution(${item.id}, this)">Detail</button>
+              <button type="button" class="secondary" onclick="showExecutionLog(${item.id}, this)">Log</button>
               <button type="button" class="secondary" onclick="showExecutionContext(${item.id}, this)">Context</button>
+              <#if item.status == "PENDING" || item.status == "RUNNING">
+              <button type="button" class="warn" onclick="cancelExecution(${item.id}, this)">Cancel</button>
+              <#else>
               <button type="button" class="warn" onclick="rerunExecution(${item.id}, this)">Re-run</button>
+              </#if>
             </td>
           </tr>
           </#list>
@@ -114,9 +119,9 @@
         button.textContent = "Running";
         result.textContent = "running " + taskName + " ...";
         fetch("/api/tasks/run/" + encodeURIComponent(taskName), { method: "POST" })
-          .then(function (response) { return response.json(); })
+          .then(readJson)
           .then(function (data) {
-            result.textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            result.textContent = "submitted execution " + data.id + ", status=" + data.status;
             refreshTaskExecutions();
             refreshMergeStatus();
           })
@@ -143,8 +148,11 @@
                 + "<td><pre class=\"inline-log\">" + escapeHtml(item.outputExcerpt) + "</pre></td>"
                 + "<td>"
                 + "<button type=\"button\" class=\"secondary\" onclick=\"showExecution(" + Number(item.id) + ", this)\">Detail</button> "
+                + "<button type=\"button\" class=\"secondary\" onclick=\"showExecutionLog(" + Number(item.id) + ", this)\">Log</button> "
                 + "<button type=\"button\" class=\"secondary\" onclick=\"showExecutionContext(" + Number(item.id) + ", this)\">Context</button> "
-                + "<button type=\"button\" class=\"warn\" onclick=\"rerunExecution(" + Number(item.id) + ", this)\">Re-run</button>"
+                + ((item.status === "PENDING" || item.status === "RUNNING")
+                  ? "<button type=\"button\" class=\"warn\" onclick=\"cancelExecution(" + Number(item.id) + ", this)\">Cancel</button>"
+                  : "<button type=\"button\" class=\"warn\" onclick=\"rerunExecution(" + Number(item.id) + ", this)\">Re-run</button>")
                 + "</td>"
                 + "</tr>";
             }).join("");
@@ -167,8 +175,10 @@
               "id=" + item.id + "\n"
               + "task=" + item.taskName + "\n"
               + "status=" + item.status + ", exitCode=" + item.exitCode + ", durationMs=" + item.durationMs + "\n"
+              + "triggeredBy=" + (item.triggeredBy || "") + ", startedAt=" + (item.startedAt || "") + ", finishedAt=" + (item.finishedAt || "") + "\n"
+              + "logPath=" + (item.logPath || "") + "\n"
               + "command=" + item.command + "\n\n"
-              + (item.outputExcerpt || "");
+              + (item.errorMessage || "") + "\n\n" + (item.outputExcerpt || "");
           })
           .catch(function (error) {
             document.getElementById("taskExecutionDetail").textContent = String(error);
@@ -183,12 +193,12 @@
         var previous = button.textContent;
         var result = document.getElementById("taskRunResult");
         button.disabled = true;
-        button.textContent = "Running";
-        result.textContent = "rerunning execution " + id + " ...";
+        button.textContent = "Submitting";
+        result.textContent = "submitting rerun for execution " + id + " ...";
         fetch("/api/tasks/executions/" + encodeURIComponent(id) + "/rerun", { method: "POST" })
-          .then(function (response) { return response.json(); })
+          .then(readJson)
           .then(function (data) {
-            result.textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            result.textContent = "submitted execution " + data.id + ", status=" + data.status;
             refreshTaskExecutions();
             refreshMergeStatus();
           })
@@ -199,6 +209,52 @@
             button.disabled = false;
             button.textContent = previous;
           });
+      }
+
+      function cancelExecution(id, button) {
+        var previous = button.textContent;
+        var result = document.getElementById("taskRunResult");
+        button.disabled = true;
+        button.textContent = "Cancelling";
+        fetch("/api/tasks/executions/" + encodeURIComponent(id) + "/cancel", { method: "POST" })
+          .then(readJson)
+          .then(function (data) {
+            result.textContent = "execution " + id + ", status=" + data.status;
+            refreshTaskExecutions();
+          })
+          .catch(function (error) { result.textContent = String(error); })
+          .finally(function () {
+            button.disabled = false;
+            button.textContent = previous;
+          });
+      }
+
+      function showExecutionLog(id, button) {
+        var previous = button.textContent;
+        button.disabled = true;
+        button.textContent = "Loading";
+        fetch("/api/tasks/executions/" + encodeURIComponent(id) + "/log", { cache: "no-store" })
+          .then(function (response) {
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            return response.text();
+          })
+          .then(function (value) {
+            document.getElementById("taskExecutionDetail").textContent = value || "no log output";
+          })
+          .catch(function (error) {
+            document.getElementById("taskExecutionDetail").textContent = String(error);
+          })
+          .finally(function () {
+            button.disabled = false;
+            button.textContent = previous;
+          });
+      }
+
+      function readJson(response) {
+        return response.json().then(function (data) {
+          if (!response.ok) throw new Error(data.error || ("HTTP " + response.status));
+          return data;
+        });
       }
 
       function showExecutionContext(id, button) {

@@ -1,10 +1,8 @@
 package com.example.warehouse.service;
 
 import com.example.warehouse.config.WarehouseProperties;
-import com.example.warehouse.model.CommandResult;
 import com.example.warehouse.model.SparkTaskConfig;
 import com.example.warehouse.model.TaskExecution;
-import com.example.warehouse.repository.TaskExecutionRepository;
 import com.example.warehouse.repository.TaskRepository;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,18 +23,18 @@ public class TaskConfigService {
     private final ObjectMapper objectMapper;
     private final CommandExecutorService commandExecutorService;
     private final WarehouseProperties warehouseProperties;
-    private final TaskExecutionRepository taskExecutionRepository;
+    private final TaskExecutionService taskExecutionService;
 
     public TaskConfigService(TaskRepository taskRepository,
                              ObjectMapper objectMapper,
                              CommandExecutorService commandExecutorService,
                              WarehouseProperties warehouseProperties,
-                             TaskExecutionRepository taskExecutionRepository) {
+                             TaskExecutionService taskExecutionService) {
         this.taskRepository = taskRepository;
         this.objectMapper = objectMapper;
         this.commandExecutorService = commandExecutorService;
         this.warehouseProperties = warehouseProperties;
-        this.taskExecutionRepository = taskExecutionRepository;
+        this.taskExecutionService = taskExecutionService;
     }
 
     public List<SparkTaskConfig> listTasks() {
@@ -69,47 +67,16 @@ public class TaskConfigService {
         taskRepository.upsert(task);
     }
 
-    public CommandResult runTask(String taskName) {
+    public TaskExecution runTask(String taskName, String triggeredBy) {
         return listTasks().stream()
                 .filter(task -> taskName.equals(task.getTaskName()))
                 .findFirst()
-                .map(this::runAndRecord)
-                .orElseGet(() -> new CommandResult(2, "task not found: " + taskName));
+                .map(task -> taskExecutionService.submitShell(
+                        task.getTaskName(), task.getTaskType(), task.getCommand(), 600, triggeredBy, null))
+                .orElseThrow(() -> new IllegalArgumentException("task not found: " + taskName));
     }
 
-    public CommandResult rerunExecution(long executionId) {
-        return taskExecutionRepository.findById(executionId)
-                .map(this::rerunAndRecord)
-                .orElseGet(() -> new CommandResult(2, "task execution not found: " + executionId));
-    }
-
-    private CommandResult runAndRecord(SparkTaskConfig task) {
-        long startedAt = System.currentTimeMillis();
-        CommandResult result = commandExecutorService.run(java.util.Arrays.asList("bash", "-lc", task.getCommand()), 600);
-        long durationMs = System.currentTimeMillis() - startedAt;
-        taskExecutionRepository.save(
-                task.getTaskName(),
-                task.getTaskType(),
-                task.getCommand(),
-                result.getExitCode(),
-                result.getOutput(),
-                durationMs
-        );
-        return result;
-    }
-
-    private CommandResult rerunAndRecord(TaskExecution execution) {
-        long startedAt = System.currentTimeMillis();
-        CommandResult result = commandExecutorService.run(java.util.Arrays.asList("bash", "-lc", execution.getCommand()), 600);
-        long durationMs = System.currentTimeMillis() - startedAt;
-        taskExecutionRepository.save(
-                execution.getTaskName(),
-                execution.getTaskType(),
-                execution.getCommand(),
-                result.getExitCode(),
-                result.getOutput(),
-                durationMs
-        );
-        return result;
+    public TaskExecution rerunExecution(long executionId, String triggeredBy) {
+        return taskExecutionService.rerun(executionId, triggeredBy);
     }
 }

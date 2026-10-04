@@ -1,6 +1,5 @@
 package com.example.warehouse.controller;
 
-import com.example.warehouse.model.CommandResult;
 import com.example.warehouse.model.MergeTaskStatus;
 import com.example.warehouse.model.SparkTaskConfig;
 import com.example.warehouse.model.TaskExecution;
@@ -8,11 +7,13 @@ import com.example.warehouse.repository.TaskExecutionRepository;
 import com.example.warehouse.service.CommandExecutorService;
 import com.example.warehouse.service.MergeTaskStatusService;
 import com.example.warehouse.service.TaskConfigService;
+import com.example.warehouse.service.TaskExecutionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.Principal;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,9 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 
 @Controller
 @Tag(name = "Tasks", description = "Spark task configuration")
@@ -31,15 +35,18 @@ public class TaskController {
     private final TaskExecutionRepository taskExecutionRepository;
     private final MergeTaskStatusService mergeTaskStatusService;
     private final CommandExecutorService commandExecutorService;
+    private final TaskExecutionService taskExecutionService;
 
     public TaskController(TaskConfigService taskConfigService,
                           TaskExecutionRepository taskExecutionRepository,
                           MergeTaskStatusService mergeTaskStatusService,
-                          CommandExecutorService commandExecutorService) {
+                          CommandExecutorService commandExecutorService,
+                          TaskExecutionService taskExecutionService) {
         this.taskConfigService = taskConfigService;
         this.taskExecutionRepository = taskExecutionRepository;
         this.mergeTaskStatusService = mergeTaskStatusService;
         this.commandExecutorService = commandExecutorService;
+        this.taskExecutionService = taskExecutionService;
     }
 
     @GetMapping("/tasks")
@@ -72,8 +79,15 @@ public class TaskController {
     @PostMapping("/api/tasks/run/{taskName}")
     @ResponseBody
     @Operation(summary = "Run one configured task")
-    public CommandResult runTask(@PathVariable String taskName) {
-        return taskConfigService.runTask(taskName);
+    public ResponseEntity<?> runTask(@PathVariable String taskName, Principal principal) {
+        try {
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(taskConfigService.runTask(taskName, operator(principal)));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(error(ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error(ex.getMessage()));
+        }
     }
 
     @GetMapping("/api/tasks/executions/{id}")
@@ -86,8 +100,35 @@ public class TaskController {
     @PostMapping("/api/tasks/executions/{id}/rerun")
     @ResponseBody
     @Operation(summary = "Rerun one task execution command")
-    public CommandResult rerunExecution(@PathVariable long id) {
-        return taskConfigService.rerunExecution(id);
+    public ResponseEntity<?> rerunExecution(@PathVariable long id, Principal principal) {
+        try {
+            return ResponseEntity.status(HttpStatus.ACCEPTED)
+                    .body(taskConfigService.rerunExecution(id, operator(principal)));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(error(ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error(ex.getMessage()));
+        }
+    }
+
+    @PostMapping("/api/tasks/executions/{id}/cancel")
+    @ResponseBody
+    @Operation(summary = "Cancel one pending or running task execution")
+    public ResponseEntity<?> cancelExecution(@PathVariable long id) {
+        try {
+            return ResponseEntity.ok(taskExecutionService.cancel(id));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(error(ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error(ex.getMessage()));
+        }
+    }
+
+    @GetMapping(value = "/api/tasks/executions/{id}/log", produces = MediaType.TEXT_PLAIN_VALUE)
+    @ResponseBody
+    @Operation(summary = "Read one task execution log")
+    public String executionLog(@PathVariable long id) {
+        return taskExecutionService.readLog(id);
     }
 
     @GetMapping("/api/tasks/executions/{id}/context")
@@ -146,5 +187,15 @@ public class TaskController {
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private String operator(Principal principal) {
+        return principal == null ? "system" : principal.getName();
+    }
+
+    private Map<String, String> error(String message) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("error", message);
+        return body;
     }
 }

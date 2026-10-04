@@ -88,11 +88,19 @@ read form input
   -> upsert sync_task
 ```
 
-The command is executed by:
+Long-running configured tasks are submitted to:
 
 ```text
-CommandExecutorService
+TaskExecutionService
+  -> task_execution PENDING record + task_execution_lock
+  -> warehouseTaskExecutor
+  -> CommandExecutorService
+  -> data/task-executions/<date>/<execution-id>.log
 ```
+
+The Tasks page refreshes status every five seconds. It supports live logs,
+cancel, timeout, duplicate-run protection, and rerun. Short dashboard probes
+still call `CommandExecutorService` synchronously.
 
 Default working directory:
 

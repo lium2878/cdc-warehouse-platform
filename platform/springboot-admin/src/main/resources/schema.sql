@@ -39,9 +39,26 @@ create table if not exists task_execution (
   exit_code int,
   output_excerpt text,
   duration_ms bigint,
+  parameters_json text,
+  log_path varchar(1024),
+  process_id bigint,
+  timeout_seconds int,
+  triggered_by varchar(128),
+  started_at timestamp null,
+  finished_at timestamp null,
+  heartbeat_at timestamp null,
+  parent_execution_id bigint,
+  error_message text,
   created_at timestamp not null default current_timestamp,
   key idx_task_execution_created_at (created_at),
   key idx_task_execution_name (task_name)
+);
+
+create table if not exists task_execution_lock (
+  lock_key varchar(512) primary key,
+  execution_id bigint not null,
+  created_at timestamp not null default current_timestamp,
+  key idx_task_execution_lock_execution (execution_id)
 );
 
 create table if not exists merge_task_status (

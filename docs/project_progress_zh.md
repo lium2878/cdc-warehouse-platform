@@ -152,8 +152,11 @@ comment_batch_priority_total
 - Logs 页面。
 - Onboarding 页面。
 - Tasks 页面。
-- 任务执行历史。
-- 任务失败明细和重跑入口。
+- 异步任务执行模型，HTTP 提交后立即返回执行 ID。
+- `PENDING/RUNNING/SUCCESS/FAILED/TIMEOUT/CANCELLED` 完整状态机。
+- MySQL 任务锁，防止同名任务重复执行。
+- 任务心跳、超时、取消、失败重跑和服务异常恢复。
+- 独立任务日志文件、实时日志查看和执行历史。
 - ODS merge 状态表。
 - 页面一键触发本地/服务器 E2E 验收。
 - 表级补数入口。

@@ -198,6 +198,7 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `WarehouseAdminApplication.java`：SpringBoot 启动类。
 - `config/SwaggerConfig.java`：Swagger/OpenAPI 配置。
 - `config/WarehouseProperties.java`：绑定 `warehouse.*` 配置，包括 auth、actions、mysql、validation。
+- `config/TaskExecutorConfig.java`：配置后台任务线程池和心跳定时器；长任务不占用 HTTP 请求线程。
 
 ### `controller`
 
@@ -212,7 +213,7 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `RealtimeController.java`：实时数仓页面和 Kudu/Impala API。
 - `ReplayController.java`：数据回放页面和 API。
 - `RuleController.java`：敏感规则/质量规则页面和 API。
-- `TaskController.java`：任务配置页面和 API，包含手动运行任务、查看任务执行历史、查看失败输出、重跑历史命令、查看 ODS merge 状态。
+- `TaskController.java`：任务配置和执行 API，包含异步提交、状态查询、实时日志、取消、重跑和 ODS merge 状态。
 - `TableOpsController.java`：表级运维页面和 API，包含补数、链路检查、一致性检查和新表接入后验收。
 
 ### `model`
@@ -233,7 +234,7 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `ServiceStatus.java`：服务状态卡片。
 - `SparkTaskConfig.java`：Spark 任务配置。
 - `TableOpsRequest.java`：表级运维请求参数，包括库表、业务日期、补数开始/结束日期。
-- `TaskExecution.java`：任务执行历史模型，记录每次手动运行的命令、结果、耗时和输出摘要。
+- `TaskExecution.java`：任务执行模型，记录状态、触发人、超时、日志路径、心跳、父执行、开始/结束时间和结果。
 - `MergeTaskStatus.java`：ODS merge 状态模型，从 merge audit JSON 同步到 MySQL。
 - `TableMetadata.java`：表元数据实体。
 - `TableStorageView.java`：表存储路径展示。
@@ -250,7 +251,7 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `RuleRepository.java`：规则表 CRUD。
 - `TableMetadataRepository.java`：表元数据 CRUD。
 - `TaskRepository.java`：任务配置 CRUD。
-- `TaskExecutionRepository.java`：任务执行历史写入和查询，页面手动运行或重跑历史命令后会落库。
+- `TaskExecutionRepository.java`：持久化任务生命周期；事务创建任务和防重锁，更新心跳、终态并释放锁。
 - `MergeTaskStatusRepository.java`：ODS merge 状态写入和查询，用于排查某个分区是否 merge 成功。
 
 ### `security`
@@ -262,7 +263,7 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 
 ### `service`
 
-- `CommandExecutorService.java`：统一执行本地脚本，设置工作目录、超时、合并 stdout/stderr。
+- `CommandExecutorService.java`：管理系统进程；日志直接落文件，正确执行超时和取消，并返回日志尾部摘要。
 - `DashboardService.java`：组装首页数据，包括服务状态、Hive 表、日志摘要。
 - `HiveQueryService.java`：通过 JDBC 查询 Hive/Impala。
 - `MetadataService.java`：元数据业务逻辑，MySQL 不可用时 dev 可读 fallback JSON。
@@ -274,7 +275,8 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `ReplayService.java`：校验回放请求，执行全量 MySQL 快照重放并更新任务状态。
 - `RuleService.java`：敏感规则读取/保存。
 - `StartupValidationService.java`：启动时校验生产配置，避免默认密码、默认 secret、缺路径。
-- `TaskConfigService.java`：任务配置读取/保存、手动运行任务、按历史执行记录重跑命令。
+- `TaskConfigService.java`：任务配置读取/保存，将手动运行和历史重跑提交给异步执行服务。
+- `TaskExecutionService.java`：任务状态机核心，负责提交、后台执行、防重复、心跳、超时、取消、重跑、日志读取和陈旧任务恢复。
 - `TableOpsService.java`：表级运维逻辑。补数会执行 bootstrap 和 merge；链路检查会检查 MySQL、Kafka、HDFS、Hive；一致性检查会对比 MySQL 与 ODS 行数并写入监控结果；新表验收会对当前表执行 bootstrap、merge 和 ODS/Hive 检查。
 
 ### `resources`
