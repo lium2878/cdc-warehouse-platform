@@ -1,11 +1,14 @@
 package com.example.warehouse.controller;
 
-import com.example.warehouse.model.CommandResult;
 import com.example.warehouse.model.RealtimeSnapshot;
 import com.example.warehouse.service.PlatformActionService;
 import com.example.warehouse.service.RealtimeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.security.Principal;
+import java.util.Collections;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,7 +43,16 @@ public class RealtimeController {
     @PostMapping("/api/realtime/kafka-to-kudu")
     @ResponseBody
     @Operation(summary = "Run one Kafka-to-Kudu realtime batch")
-    public CommandResult kafkaToKudu() {
-        return platformActionService.run("realtime-kafka-kudu-once", null);
+    public ResponseEntity<?> kafkaToKudu(Principal principal) {
+        try {
+            return ResponseEntity.status(HttpStatus.ACCEPTED).body(
+                    platformActionService.run("realtime-kafka-kudu-once", null, operator(principal)));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Collections.singletonMap("error", ex.getMessage()));
+        }
+    }
+
+    private String operator(Principal principal) {
+        return principal == null ? "system" : principal.getName();
     }
 }

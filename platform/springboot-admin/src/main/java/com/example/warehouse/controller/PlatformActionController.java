@@ -1,8 +1,9 @@
 package com.example.warehouse.controller;
 
-import com.example.warehouse.model.ActionRequest;
 import com.example.warehouse.model.ActionAudit;
+import com.example.warehouse.model.ActionRequest;
 import com.example.warehouse.model.CommandResult;
+import com.example.warehouse.model.TaskExecution;
 import com.example.warehouse.repository.ActionAuditRepository;
 import com.example.warehouse.service.PlatformActionService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -10,10 +11,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.security.Principal;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
-import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,44 +42,46 @@ public class PlatformActionController {
 
     @PostMapping("/{action}")
     @Operation(summary = "Run a local warehouse operation")
-    public CommandResult run(@PathVariable String action,
-                             @RequestBody(required = false) ActionRequest request,
-                             HttpServletRequest httpRequest,
-                             Principal principal) {
+    public ResponseEntity<?> run(@PathVariable String action,
+                                 @RequestBody(required = false) ActionRequest request,
+                                 HttpServletRequest httpRequest,
+                                 Principal principal) {
         long startedAt = System.currentTimeMillis();
-        CommandResult result;
         try {
-            result = platformActionService.run(action, request);
-        } catch (RuntimeException ex) {
+            Object result = platformActionService.run(action, request, operator(principal));
             long durationMs = System.currentTimeMillis() - startedAt;
-            actionAuditRepository.save(
-                    action,
-                    operator(principal),
-                    clientIp(httpRequest),
-                    toJson(request),
-                    -1,
-                    ex.getMessage(),
-                    durationMs
-            );
+            if (result instanceof TaskExecution) {
+                TaskExecution execution = (TaskExecution) result;
+                actionAuditRepository.save(action, operator(principal), clientIp(httpRequest), toJson(request),
+                        0, "submitted executionId=" + execution.getId() + " status=" + execution.getStatus(), durationMs);
+                return ResponseEntity.status(HttpStatus.ACCEPTED).body(execution);
+            }
+            CommandResult commandResult = (CommandResult) result;
+            actionAuditRepository.save(action, operator(principal), clientIp(httpRequest), toJson(request),
+                    commandResult.getExitCode(), commandResult.getOutput(), durationMs);
+            return ResponseEntity.ok(commandResult);
+        } catch (IllegalArgumentException ex) {
+            auditFailure(action, request, httpRequest, principal, startedAt, ex);
+            return ResponseEntity.badRequest().body(error(ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            auditFailure(action, request, httpRequest, principal, startedAt, ex);
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(error(ex.getMessage()));
+        } catch (RuntimeException ex) {
+            auditFailure(action, request, httpRequest, principal, startedAt, ex);
             throw ex;
         }
-        long durationMs = System.currentTimeMillis() - startedAt;
-        actionAuditRepository.save(
-                action,
-                operator(principal),
-                clientIp(httpRequest),
-                toJson(request),
-                result.getExitCode(),
-                result.getOutput(),
-                durationMs
-        );
-        return result;
     }
 
     @GetMapping("/audits")
     @Operation(summary = "List latest operation audit records")
     public List<ActionAudit> audits() {
         return actionAuditRepository.findLatest(50);
+    }
+
+    private void auditFailure(String action, ActionRequest request, HttpServletRequest httpRequest,
+                              Principal principal, long startedAt, RuntimeException ex) {
+        actionAuditRepository.save(action, operator(principal), clientIp(httpRequest), toJson(request),
+                -1, ex.getMessage(), System.currentTimeMillis() - startedAt);
     }
 
     private String operator(Principal principal) {
@@ -101,5 +108,11 @@ public class PlatformActionController {
         } catch (JsonProcessingException ex) {
             return "{}";
         }
+    }
+
+    private Map<String, String> error(String message) {
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("error", message);
+        return body;
     }
 }

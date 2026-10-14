@@ -62,8 +62,8 @@ spring:
 
 ```text
 /             table metadata from MySQL
-/tasks        sync_task from MySQL, supports task save form
-/onboarding   MySQL to Hive onboarding form, executes scripts/onboard_table.py
+/tasks        sync_task from MySQL, task configuration and async execution history
+/onboarding   async MySQL-to-Hive onboarding with status, log and cancellation
 /replay       replay form, creates replay command and writes replay_record
 /monitors     monitor_result from MySQL
 /rules        sensitive_rule and special_value_rule from MySQL
@@ -74,7 +74,7 @@ empty monitor rows, so pages still render.
 
 ## Onboarding Execution
 
-`POST /onboarding` does:
+`POST /onboarding` validates input, returns HTTP 202, then runs:
 
 ```text
 read form input
@@ -84,9 +84,12 @@ read form input
   -> generate ods DDL
   -> generate ODS merge SQL
   -> generate DolphinScheduler task JSON
-  -> upsert table_metadata
-  -> upsert sync_task
+  -> transaction: upsert table_metadata + sync_task
+  -> mark SUCCESS only after command and transaction both succeed
 ```
+
+Invalid metadata returns HTTP 400. A duplicate active onboarding for the same
+table returns HTTP 409. Post-processing failure marks the execution `FAILED`.
 
 Long-running configured tasks are submitted to:
 

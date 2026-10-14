@@ -1,104 +1,92 @@
 package com.example.warehouse.service;
 
 import com.example.warehouse.model.ActionRequest;
-import com.example.warehouse.model.CommandResult;
-import com.example.warehouse.repository.TaskExecutionRepository;
+import com.example.warehouse.model.TaskExecution;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
 @Service
 public class PlatformActionService {
     private final CommandExecutorService commandExecutorService;
-    private final TaskExecutionRepository taskExecutionRepository;
+    private final TaskExecutionService taskExecutionService;
 
     public PlatformActionService(CommandExecutorService commandExecutorService,
-                                 TaskExecutionRepository taskExecutionRepository) {
+                                 TaskExecutionService taskExecutionService) {
         this.commandExecutorService = commandExecutorService;
-        this.taskExecutionRepository = taskExecutionRepository;
+        this.taskExecutionService = taskExecutionService;
     }
 
-    public CommandResult run(String action, ActionRequest request) {
+    public Object run(String action, ActionRequest request, String triggeredBy) {
         if ("refresh-ops".equals(action)) {
             return commandExecutorService.run(Arrays.asList("bash", "scripts/refresh_ops_snapshot.sh"), 60);
-        }
-        if ("daily-merge".equals(action)) {
-            List<String> command = new ArrayList<>();
-            command.add("bash");
-            command.add("deploy/run_job.sh");
-            command.add("daily-merge");
-            if (request != null && notBlank(request.getBizDt())) {
-                command.add(request.getBizDt().trim());
-            }
-            return commandExecutorService.run(command, 300);
-        }
-        if ("monitor-suite".equals(action)) {
-            List<String> command = new ArrayList<>();
-            command.add("bash");
-            command.add("deploy/run_job.sh");
-            command.add("monitors");
-            if (request != null && notBlank(request.getBizDt())) {
-                command.add(request.getBizDt().trim());
-            }
-            return commandExecutorService.run(command, 1800);
         }
         if ("test-alert".equals(action)) {
             return commandExecutorService.run(Arrays.asList("python3", "scripts/send_test_alert.py"), 60);
         }
+        if ("daily-merge".equals(action)) {
+            return submit("daily_merge", "MERGE", jobCommand("daily-merge", request), 1800, triggeredBy);
+        }
+        if ("monitor-suite".equals(action)) {
+            return submit("monitor_suite", "MONITOR", jobCommand("monitors", request), 1800, triggeredBy);
+        }
         if ("ds-publish".equals(action)) {
             String mode = request == null || !notBlank(request.getMode()) ? "--audit" : request.getMode().trim();
             if (!"--audit".equals(mode) && !"--dry-run".equals(mode) && !"--live".equals(mode)) {
-                return new CommandResult(2, "invalid mode: " + mode);
+                throw new IllegalArgumentException("invalid mode: " + mode);
             }
-            return commandExecutorService.run(Arrays.asList("python3", "scripts/publish_dolphinscheduler.py", mode), 120);
+            return submit("ds_publish", "PUBLISH",
+                    Arrays.asList("python3", "scripts/publish_dolphinscheduler.py", mode), 300, triggeredBy);
         }
         if ("realtime-kafka-kudu-once".equals(action)) {
-            return commandExecutorService.run(Arrays.asList(
-                    "python3",
-                    "scripts/spark_streaming_kafka_to_kudu_once.py",
-                    "--bootstrap-objects"), 180);
+            return submit("realtime_kafka_kudu_once", "REALTIME", Arrays.asList(
+                    "python3", "scripts/spark_streaming_kafka_to_kudu_once.py", "--bootstrap-objects"),
+                    1800, triggeredBy);
         }
         if ("verify-e2e-local".equals(action)) {
-            List<String> command = new ArrayList<>();
-            command.add("bash");
-            command.add("scripts/verify_end_to_end.sh");
-            command.add("--mode");
-            command.add("local");
-            if (request != null && notBlank(request.getBizDt())) {
-                command.add("--biz-dt");
-                command.add(request.getBizDt().trim());
-            }
-            return runAndRecord("verify-e2e-local", "VERIFY", command, 1800);
+            return submit("verify_e2e_local", "VERIFY", verifyCommand("local", request), 1800, triggeredBy);
         }
         if ("verify-e2e-server".equals(action)) {
-            List<String> command = new ArrayList<>();
-            command.add("bash");
-            command.add("scripts/verify_end_to_end.sh");
-            command.add("--mode");
-            command.add("server");
-            if (request != null && notBlank(request.getBizDt())) {
-                command.add("--biz-dt");
-                command.add(request.getBizDt().trim());
-            }
-            return runAndRecord("verify-e2e-server", "VERIFY", command, 900);
+            return submit("verify_e2e_server", "VERIFY", verifyCommand("server", request), 1800, triggeredBy);
         }
-        return new CommandResult(2, "unknown action: " + action);
+        throw new IllegalArgumentException("unknown action: " + action);
     }
 
-    private CommandResult runAndRecord(String taskName, String taskType, List<String> command, long timeoutSeconds) {
-        long startedAt = System.currentTimeMillis();
-        CommandResult result = commandExecutorService.run(command, timeoutSeconds);
-        long durationMs = System.currentTimeMillis() - startedAt;
-        taskExecutionRepository.save(
-                taskName,
-                taskType,
-                String.join(" ", command),
-                result.getExitCode(),
-                result.getOutput(),
-                durationMs
-        );
-        return result;
+    private List<String> jobCommand(String job, ActionRequest request) {
+        List<String> command = new ArrayList<>(Arrays.asList("bash", "deploy/run_job.sh", job));
+        if (request != null && notBlank(request.getBizDt())) {
+            command.add(request.getBizDt().trim());
+        }
+        return command;
+    }
+
+    private List<String> verifyCommand(String mode, ActionRequest request) {
+        List<String> command = new ArrayList<>(Arrays.asList(
+                "bash", "scripts/verify_end_to_end.sh", "--mode", mode));
+        if (request != null && notBlank(request.getBizDt())) {
+            command.add("--biz-dt");
+            command.add(request.getBizDt().trim());
+        }
+        return command;
+    }
+
+    private TaskExecution submit(String taskName,
+                                 String taskType,
+                                 List<String> command,
+                                 int timeoutSeconds,
+                                 String triggeredBy) {
+        return taskExecutionService.submitShell(
+                taskName, taskType, shellCommand(command), timeoutSeconds, triggeredBy, null);
+    }
+
+    private String shellCommand(List<String> command) {
+        return command.stream().map(this::q).collect(Collectors.joining(" "));
+    }
+
+    private String q(String value) {
+        return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
     private boolean notBlank(String value) {

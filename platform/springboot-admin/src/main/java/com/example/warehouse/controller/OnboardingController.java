@@ -4,6 +4,8 @@ import com.example.warehouse.model.OnboardRequest;
 import com.example.warehouse.service.OnboardingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.security.Principal;
+import javax.servlet.http.HttpServletResponse;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,10 +38,26 @@ public class OnboardingController {
 
     @PostMapping("/onboarding")
     @Operation(summary = "Execute onboarding (MySQL boot + Hive DDL + scheduler pub)")
-    public String execute(@ModelAttribute OnboardRequest request, Model model) {
+    public String execute(@ModelAttribute OnboardRequest request,
+                          Model model,
+                          Principal principal,
+                          HttpServletResponse response) {
         model.addAttribute("request", request);
         model.addAttribute("plan", onboardingService.buildPlan(request));
-        model.addAttribute("result", onboardingService.execute(request));
+        try {
+            model.addAttribute("execution", onboardingService.execute(request, operator(principal)));
+            response.setStatus(HttpServletResponse.SC_ACCEPTED);
+        } catch (IllegalArgumentException ex) {
+            model.addAttribute("error", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+        } catch (IllegalStateException ex) {
+            model.addAttribute("error", ex.getMessage());
+            response.setStatus(HttpServletResponse.SC_CONFLICT);
+        }
         return "onboarding";
+    }
+
+    private String operator(Principal principal) {
+        return principal == null ? "system" : principal.getName();
     }
 }

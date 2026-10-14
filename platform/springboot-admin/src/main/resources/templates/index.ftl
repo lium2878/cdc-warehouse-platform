@@ -256,6 +256,29 @@
         }).join("");
       }
 
+      var actionPollTimer = null;
+
+      function pollAction(executionId) {
+        if (actionPollTimer) clearInterval(actionPollTimer);
+        function refresh() {
+          fetch("/api/tasks/executions/" + executionId, { cache: "no-store" })
+            .then(function (response) { return response.json(); })
+            .then(function (execution) {
+              document.getElementById("actionResult").textContent =
+                "execution #" + execution.id + "\nstatus=" + execution.status
+                + (execution.errorMessage ? "\nerror=" + execution.errorMessage : "")
+                + "\nlog=/api/tasks/executions/" + execution.id + "/log\ntasks=/tasks";
+              if (["SUCCESS", "FAILED", "TIMEOUT", "CANCELLED"].indexOf(execution.status) >= 0) {
+                clearInterval(actionPollTimer);
+                refreshDashboard();
+                refreshActionAudits();
+              }
+            });
+        }
+        refresh();
+        actionPollTimer = setInterval(refresh, 2000);
+      }
+
       function runAction(action, button) {
         var payload = {
           bizDt: document.getElementById("actionBizDt").value,
@@ -271,9 +294,18 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         })
-          .then(function (response) { return response.json(); })
+          .then(function (response) {
+            return response.json().then(function (data) {
+              if (!response.ok) throw new Error(data.error || JSON.stringify(data));
+              return data;
+            });
+          })
           .then(function (data) {
-            result.textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            if (data.id) {
+              pollAction(data.id);
+            } else {
+              result.textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            }
             refreshDashboard();
             refreshActionAudits();
           })

@@ -79,9 +79,19 @@
           headers: { "Content-Type": "application/json" },
           body: "{}"
         })
-          .then(function (response) { return response.json(); })
+          .then(function (response) {
+            return response.json().then(function (data) {
+              if (!response.ok) throw new Error(data.error || JSON.stringify(data));
+              return data;
+            });
+          })
           .then(function (data) {
-            result.textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            if (data.id) {
+              result.textContent = "submitted execution #" + data.id + ", status=" + data.status + "\nlog=/api/tasks/executions/" + data.id + "/log";
+              pollExecution(data.id, result);
+            } else {
+              result.textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            }
           })
           .catch(function (error) {
             result.textContent = String(error);
@@ -90,6 +100,21 @@
             button.disabled = false;
             button.textContent = previous;
           });
+      }
+
+      function pollExecution(id, result) {
+        var timer = setInterval(function () {
+          fetch("/api/tasks/executions/" + id, { cache: "no-store" })
+            .then(function (response) { return response.json(); })
+            .then(function (execution) {
+              result.textContent = "execution #" + id + "\nstatus=" + execution.status
+                + (execution.errorMessage ? "\nerror=" + execution.errorMessage : "")
+                + "\nlog=/api/tasks/executions/" + id + "/log";
+              if (["SUCCESS", "FAILED", "TIMEOUT", "CANCELLED"].indexOf(execution.status) >= 0) {
+                clearInterval(timer);
+              }
+            });
+        }, 2000);
       }
     </script>
   </body>

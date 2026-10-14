@@ -127,16 +127,39 @@
         button.textContent = 'Running';
         document.getElementById('actionResult').textContent = 'running Kafka -> Kudu batch ...';
         fetch('/api/realtime/kafka-to-kudu', { method: 'POST' })
-          .then(function (response) { return response.json(); })
+          .then(function (response) {
+            return response.json().then(function (data) {
+              if (!response.ok) throw new Error(data.error || JSON.stringify(data));
+              return data;
+            });
+          })
           .then(function (data) {
-            document.getElementById('actionResult').textContent = 'exitCode=' + data.exitCode + '\\n' + (data.output || '');
-            refreshRealtime();
+            document.getElementById('actionResult').textContent =
+              'submitted execution #' + data.id + ', status=' + data.status + '\\nlog=/api/tasks/executions/' + data.id + '/log';
+            pollRealtimeExecution(data.id);
           })
           .catch(function (error) { document.getElementById('actionResult').textContent = String(error); })
           .finally(function () {
             button.disabled = false;
             button.textContent = previous;
           });
+      }
+
+      function pollRealtimeExecution(id) {
+        var timer = setInterval(function () {
+          fetch('/api/tasks/executions/' + id, { cache: 'no-store' })
+            .then(function (response) { return response.json(); })
+            .then(function (execution) {
+              document.getElementById('actionResult').textContent =
+                'execution #' + id + '\\nstatus=' + execution.status
+                + (execution.errorMessage ? '\\nerror=' + execution.errorMessage : '')
+                + '\\nlog=/api/tasks/executions/' + id + '/log';
+              if (["SUCCESS", "FAILED", "TIMEOUT", "CANCELLED"].indexOf(execution.status) >= 0) {
+                clearInterval(timer);
+                refreshRealtime();
+              }
+            });
+        }, 2000);
       }
 
       refreshRealtime();

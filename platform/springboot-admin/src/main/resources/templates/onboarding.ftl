@@ -44,14 +44,23 @@
           </#list>
         </ol>
       </section>
-      <#if result??>
+      <#if error??>
       <section>
-        <h2>Result</h2>
-        <p>Exit Code: <#if result.exitCode == 0><span class="ok">${result.exitCode}</span><#else><span class="bad">${result.exitCode}</span></#if></p>
+        <h2>提交失败</h2>
+        <pre class="bad">${error?html}</pre>
+      </section>
+      </#if>
+      <#if execution??>
+      <section>
+        <h2>执行状态</h2>
+        <p id="onboardingStatus">Execution #${execution.id}: ${execution.status}</p>
         <div class="actions">
-          <button type="button" class="secondary" onclick="verifyOnboardedTable(this)">接入后验收</button>
+          <button id="verifyButton" type="button" class="secondary" onclick="verifyOnboardedTable(this)" disabled>接入后验收</button>
+          <button id="cancelButton" type="button" class="warn" onclick="cancelOnboarding(this)">取消</button>
+          <a href="/api/tasks/executions/${execution.id}/log" target="_blank">查看日志</a>
+          <a href="/tasks">任务中心</a>
         </div>
-        <pre>${result.output?html}</pre>
+        <pre id="onboardingLog"></pre>
         <pre id="onboardingVerifyResult"></pre>
       </section>
       </#if>
@@ -76,7 +85,12 @@
         })
           .then(function (response) { return response.json(); })
           .then(function (data) {
-            document.getElementById("onboardingVerifyResult").textContent = "exitCode=" + data.exitCode + "\n" + (data.output || "");
+            if (data.id) {
+              document.getElementById("onboardingVerifyResult").textContent =
+                "submitted verification execution #" + data.id + ", status=" + data.status + "\nOpen Tasks for progress and logs.";
+            } else {
+              document.getElementById("onboardingVerifyResult").textContent = data.error || data.output || JSON.stringify(data);
+            }
           })
           .catch(function (error) {
             document.getElementById("onboardingVerifyResult").textContent = String(error);
@@ -86,6 +100,44 @@
             button.textContent = previous;
           });
       }
+
+      <#if execution??>
+      var onboardingExecutionId = ${execution.id?c};
+      var onboardingTimer = null;
+
+      function terminal(status) {
+        return ["SUCCESS", "FAILED", "TIMEOUT", "CANCELLED"].indexOf(status) >= 0;
+      }
+
+      function refreshOnboarding() {
+        Promise.all([
+          fetch("/api/tasks/executions/" + onboardingExecutionId, { cache: "no-store" }).then(function (response) { return response.json(); }),
+          fetch("/api/tasks/executions/" + onboardingExecutionId + "/log", { cache: "no-store" }).then(function (response) { return response.text(); })
+        ]).then(function (values) {
+          var execution = values[0];
+          document.getElementById("onboardingStatus").textContent =
+            "Execution #" + execution.id + ": " + execution.status + (execution.errorMessage ? " - " + execution.errorMessage : "");
+          document.getElementById("onboardingLog").textContent = values[1] || execution.outputExcerpt || "";
+          document.getElementById("verifyButton").disabled = execution.status !== "SUCCESS";
+          document.getElementById("cancelButton").disabled = terminal(execution.status);
+          if (terminal(execution.status) && onboardingTimer) {
+            clearInterval(onboardingTimer);
+          }
+        }).catch(function (error) {
+          document.getElementById("onboardingStatus").textContent = String(error);
+        });
+      }
+
+      function cancelOnboarding(button) {
+        button.disabled = true;
+        fetch("/api/tasks/executions/" + onboardingExecutionId + "/cancel", { method: "POST" })
+          .then(refreshOnboarding)
+          .catch(function (error) { document.getElementById("onboardingStatus").textContent = String(error); });
+      }
+
+      refreshOnboarding();
+      onboardingTimer = setInterval(refreshOnboarding, 2000);
+      </#if>
     </script>
   </body>
 </html>

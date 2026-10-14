@@ -14,5 +14,9 @@ class TemplateSyntaxTest {
         configuration.getTemplate("tasks.ftl");
         configuration.getTemplate("table_ops.ftl");
         configuration.getTemplate("replay.ftl");
+        configuration.getTemplate("onboarding.ftl");
+        configuration.getTemplate("index.ftl");
+        configuration.getTemplate("monitors.ftl");
+        configuration.getTemplate("realtime.ftl");
     }
 }

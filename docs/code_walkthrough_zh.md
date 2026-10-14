@@ -208,8 +208,8 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `LogController.java`：日志页面和日志 API。
 - `MetadataController.java`：元数据查询/更新 API。
 - `MonitorController.java`：监控页面和监控 API。
-- `OnboardingController.java`：新表接入页面和 API。
-- `PlatformActionController.java`：统一触发平台动作，例如 merge、监控、DS 发布；同时记录操作审计，包括操作人、客户端 IP、请求参数、退出码、输出摘要和耗时。
+- `OnboardingController.java`：异步提交新表接入，页面轮询状态并提供日志、取消和成功后验收。
+- `PlatformActionController.java`：统一触发平台动作；长任务返回 HTTP 202 和 execution ID，短探针同步返回，同时记录操作审计。
 - `RealtimeController.java`：实时数仓页面和 Kudu/Impala API。
 - `ReplayController.java`：提交异步全量回放、查询回放记录；页面可查看实时日志和取消运行。
 - `RuleController.java`：敏感规则/质量规则页面和 API。
@@ -268,15 +268,16 @@ SpringBoot 数据管理平台。面试可以按 MVC 讲：Controller 接 HTTP，
 - `HiveQueryService.java`：通过 JDBC 查询 Hive/Impala。
 - `MetadataService.java`：元数据业务逻辑，MySQL 不可用时 dev 可读 fallback JSON。
 - `MonitorService.java`：触发并保存监控结果。
-- `OnboardingService.java`：新表接入，调用 Python onboarding 脚本生成元数据和 SQL。
-- `PlatformActionService.java`：页面按钮动作路由，例如 daily merge、monitor suite、DS publish、Kafka->Kudu、本地/服务器 E2E 验收。
+- `OnboardingService.java`：校验新表参数和 DBA 元数据，安全组装命令并提交异步任务；脚本成功后才登记平台元数据和 merge 任务。
+- `OnboardingRegistrationService.java`：在同一数据库事务中登记表元数据和 merge 任务，任一步失败都会让 Onboarding 任务进入 `FAILED`。
+- `PlatformActionService.java`：页面按钮动作路由；daily merge、monitor suite、DS publish、Kafka->Kudu 和 E2E 验收走异步任务，快照刷新和测试告警保持同步。
 - `MergeTaskStatusService.java`：扫描 `data/ops/merge_audit` 下的 merge 审计 JSON，并同步到 `merge_task_status` 表。
 - `RealtimeService.java`：查询 Impala/Kudu 实时表、视图和连接状态。
 - `ReplayService.java`：校验回放请求，将全量 MySQL 快照重放提交给异步任务服务。
 - `RuleService.java`：敏感规则读取/保存。
 - `StartupValidationService.java`：启动时校验生产配置，避免默认密码、默认 secret、缺路径。
 - `TaskConfigService.java`：任务配置读取/保存，将手动运行和历史重跑提交给异步执行服务。
-- `TaskExecutionService.java`：任务状态机核心，负责提交、后台执行、防重复、心跳、超时、取消、重跑、日志读取和陈旧任务恢复。
+- `TaskExecutionService.java`：任务状态机核心，负责提交、后台执行、防重复、心跳、超时、取消、重跑、日志读取、陈旧任务恢复和成功后处理。
 - `TableOpsService.java`：异步执行表级补数、链路检查、一致性检查和新表验收；一致性任务完成后继续写监控结果，dry run 保持即时返回。
 
 ### `resources`
